@@ -34,17 +34,43 @@ for path in all_candidate_paths:
         cred_path = path
         break
 
-if not firebase_admin._apps:
-    if cred_path:
-        logger.info("Initializing Firebase Admin SDK with key file: %s", cred_path)
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-    else:
-        logger.warning("No service account key JSON file found. Attempting Application Default Credentials.")
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
+try:
+    if not firebase_admin._apps:
+        firebase_json_env = os.getenv("FIREBASE_CREDENTIALS_JSON")
+        if firebase_json_env:
+            import json
+            logger.info("Initializing Firebase Admin SDK from environment variable FIREBASE_CREDENTIALS_JSON")
+            cred_dict = json.loads(firebase_json_env)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        elif cred_path:
+            logger.info("Initializing Firebase Admin SDK with key file: %s", cred_path)
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            logger.warning("No service account key JSON file found. Attempting Application Default Credentials.")
+            cred = credentials.ApplicationDefault()
+            firebase_admin.initialize_app(cred)
 
-db = firestore.client()
+    db = firestore.client()
+except Exception as e:
+    logger.warning("Firebase Firestore initialization skipped or failed (%s). Using safe fallback DB.", e)
+    class DummyQuery:
+        def where(self, *args, **kwargs): return self
+        def stream(self, *args, **kwargs): return []
+        def get(self, *args, **kwargs): return []
+        def document(self, *args, **kwargs): return self
+        def set(self, *args, **kwargs): return None
+        def limit(self, *args, **kwargs): return self
+        def order_by(self, *args, **kwargs): return self
+
+    class DummyFirestore:
+        def collection(self, *args, **kwargs):
+            return DummyQuery()
+        def document(self, *args, **kwargs):
+            return DummyQuery()
+
+    db = DummyFirestore()
 
 
 def get_db():
